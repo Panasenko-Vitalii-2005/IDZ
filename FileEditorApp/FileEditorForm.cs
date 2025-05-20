@@ -2,6 +2,7 @@
 using System.IO;
 using System.Windows.Forms;
 using System.Text.RegularExpressions;
+using System.Collections.Generic;
 
 namespace FileEditorApp
 {
@@ -29,7 +30,6 @@ namespace FileEditorApp
         public string Load(string filePath)
         {
             string content = File.ReadAllText(filePath);
-            // Видаляємо HTML-теги, зберігаємо абзаци
             content = Regex.Replace(content, "<[^>]+>", match =>
             {
                 if (match.Value.ToLower().Contains("<p") || match.Value.ToLower().Contains("<br"))
@@ -62,7 +62,6 @@ namespace FileEditorApp
     {
         public void Save(string filePath, string content)
         {
-            // Додаємо базову HTML-структуру
             string htmlContent = $"<!DOCTYPE html>\n<html>\n<body>\n<p>{content.Replace("\n", "</p>\n<p>")}</p>\n</body>\n</html>";
             File.WriteAllText(filePath, htmlContent);
         }
@@ -104,14 +103,99 @@ namespace FileEditorApp
         public IFileSaver CreateSaver() => new BinSaver();
     }
 
+    // Інтерфейс для спостерігача
+    public interface ITextObserver
+    {
+        void Update(string message);
+    }
+
+    // Конкретний спостерігач для відображення повідомлень
+    public class MessageBoxObserver : ITextObserver
+    {
+        public void Update(string message)
+        {
+            MessageBox.Show(message, "Text Editor Notification", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+    }
+
+    // Клас для відстеження змін у текстовому полі
+    public class TextSubject
+    {
+        private readonly List<ITextObserver> _observers = new List<ITextObserver>();
+        private string _previousText = string.Empty;
+
+        public void Attach(ITextObserver observer)
+        {
+            _observers.Add(observer);
+        }
+
+        public void Detach(ITextObserver observer)
+        {
+            _observers.Remove(observer);
+        }
+
+        public void Notify(string message)
+        {
+            foreach (var observer in _observers)
+            {
+                observer.Update(message);
+            }
+        }
+
+        public void CheckTextChanges(string currentText)
+        {
+            if (!string.IsNullOrEmpty(_previousText))
+            {
+                // Перевірка видалення слів
+                var previousWords = Regex.Split(_previousText, @"\s+").Length;
+                var currentWords = Regex.Split(currentText, @"\s+").Length;
+                var deletedWords = previousWords - currentWords;
+
+                if (deletedWords > 1)
+                {
+                    Notify($"Removed {deletedWords} words.");
+                }
+            }
+            _previousText = currentText;
+        }
+    }
+
     // Головна форма (користувацька логіка)
     public partial class FileEditorForm : Form
     {
         private IFileFactory fileFactory;
+        private string currentFilePath; // Зберігаємо шлях до поточного файлу
+        private TextSubject textSubject;
+        private int previousParagraphCount = 0;
 
         public FileEditorForm()
         {
             InitializeComponent();
+            textSubject = new TextSubject();
+            textSubject.Attach(new MessageBoxObserver());
+            textBox.TextChanged += TextBox_TextChanged;
+        }
+
+        private void TextBox_TextChanged(object sender, EventArgs e)
+        {
+            textSubject.CheckTextChanges(textBox.Text);
+
+            // Перевірка кількості абзаців для автозбереження
+            int currentParagraphCount = textBox.Text.Split(new[] { "\n" }, StringSplitOptions.None).Length;
+            if (currentParagraphCount > previousParagraphCount && fileFactory != null && !string.IsNullOrEmpty(currentFilePath))
+            {
+                try
+                {
+                    IFileSaver saver = fileFactory.CreateSaver();
+                    saver.Save(currentFilePath, textBox.Text);
+                    textSubject.Notify("File updated with new paragraph.");
+                }
+                catch (Exception ex)
+                {
+                    textSubject.Notify($"Error during autosave: {ex.Message}");
+                }
+            }
+            previousParagraphCount = currentParagraphCount;
         }
 
         private void OpenButton_Click(object sender, EventArgs e)
@@ -119,8 +203,8 @@ namespace FileEditorApp
             if (openFileDialog.ShowDialog() == DialogResult.OK)
             {
                 string extension = Path.GetExtension(openFileDialog.FileName).ToLower();
+                currentFilePath = openFileDialog.FileName;
 
-                // Визначаємо фабрику залежно від розширення
                 switch (extension)
                 {
                     case ".html":
@@ -139,10 +223,10 @@ namespace FileEditorApp
 
                 try
                 {
-                    // Очищаємо текстове поле перед завантаженням нового файлу
                     textBox.Clear();
                     IFileLoader loader = fileFactory.CreateLoader();
-                    textBox.Text = loader.Load(openFileDialog.FileName);
+                    textBox.Text = loader.Load(currentFilePath);
+                    previousParagraphCount = textBox.Text.Split(new[] { "\n" }, StringSplitOptions.None).Length;
                 }
                 catch (Exception ex)
                 {
@@ -161,9 +245,9 @@ namespace FileEditorApp
 
             if (saveFileDialog.ShowDialog() == DialogResult.OK)
             {
-                // Запитуємо підтвердження перед збереженням
+                currentFilePath = saveFileDialog.FileName;
                 DialogResult result = MessageBox.Show(
-                    $"Are you sure you want to save to {Path.GetFileName(saveFileDialog.FileName)}?",
+                    $"Are you sure you want to save to {Path.GetFileName(currentFilePath)}?",
                     "Confirm Save",
                     MessageBoxButtons.YesNo,
                     MessageBoxIcon.Question);
@@ -173,7 +257,7 @@ namespace FileEditorApp
                     try
                     {
                         IFileSaver saver = fileFactory.CreateSaver();
-                        saver.Save(saveFileDialog.FileName, textBox.Text);
+                        saver.Save(currentFilePath, textBox.Text);
                         MessageBox.Show("File saved successfully");
                     }
                     catch (Exception ex)
