@@ -1,0 +1,23 @@
+Visual Studio files
+
+bin/ obj/ *.suo *.user *.sln.docstates *.csproj.user
+
+Visual Studio build artifacts
+
+*.exe *.pdb *.dll *.cache *.tlog *.log
+
+Visual Studio project files
+
+*.csproj.bak
+
+Other
+
+[Dd]ebug/ [Rr]elease/ x64/ x86/ *.aps *.bak *.tmp *.old *.orig
+
+Ignore Visual Studio temporary files
+
+*.vs/ *.vssscc *.vspscc .vshost.
+
+Ignore NuGet Packages
+
+packages/ *.nupkg *.snupkg
