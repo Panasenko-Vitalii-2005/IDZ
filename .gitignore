@@ -16,7 +16,7 @@ Other
 
 Ignore Visual Studio temporary files
 
-*.vs/ *.vssscc *.vspscc .vshost.
+.vs/ *.vssscc *.vspscc .vshost.
 
 Ignore NuGet Packages
 
